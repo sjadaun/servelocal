@@ -1,0 +1,6 @@
+flask
+flask-cors
+Pillow
+st7789
+spidev
+RPi.GPIO

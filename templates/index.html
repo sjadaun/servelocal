@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meal Planner</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">🍽️ <span>Meal Planner</span></div>
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme">
+      <svg id="icon-sun" viewBox="0 0 24 24" width="20" height="20"><path d="M12 4.5a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm0 13a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm7.5-6.5a1 1 0 011 1 1 1 0 01-1 1h-1a1 1 0 110-2h1zM6.5 12a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zm10.6-5.1a1 1 0 011.4 1.4l-.7.7a1 1 0 11-1.4-1.4l.7-.7zM6.2 17.8a1 1 0 011.4 1.4l-.7.7a1 1 0 11-1.4-1.4l.7-.7zm11.3 1.4a1 1 0 01-1.4 0l-.7-.7a1 1 0 111.4-1.4l.7.7a1 1 0 010 1.4zM7.6 6.2a1 1 0 01-1.4 0l-.7-.7a1 1 0 111.4-1.4l.7.7a1 1 0 010 1.4zM12 7a5 5 0 100 10 5 5 0 000-10z" fill="currentColor"/></svg>
+      <svg id="icon-moon" viewBox="0 0 24 24" width="20" height="20"><path d="M20.7 14.3A8.5 8.5 0 019.7 3.3a.7.7 0 00-.9-.9A9.9 9.9 0 1021.6 15.2a.7.7 0 00-.9-.9z" fill="currentColor"/></svg>
+    </button>
+  </header>
+
+  <main class="content">
+
+    <!-- NEXT MEAL TAB -->
+    <section id="tab-next" class="tab-panel">
+      <div id="next-card" class="next-card">
+        <p class="muted">Loading…</p>
+      </div>
+
+      <h3 class="section-title">Today</h3>
+      <ul id="today-list" class="today-list"></ul>
+    </section>
+
+    <!-- ALL MEALS TAB -->
+    <section id="tab-all" class="tab-panel hidden">
+      <div class="list-header">
+        <h3 class="section-title">All meals</h3>
+        <button id="add-from-list" class="btn btn-small">+ New</button>
+      </div>
+      <ul id="meal-list" class="meal-list"></ul>
+    </section>
+
+    <!-- ADD/EDIT MEAL TAB -->
+    <section id="tab-add" class="tab-panel hidden">
+      <h3 class="section-title" id="form-title">Add a meal</h3>
+      <form id="meal-form" class="card">
+        <input type="hidden" id="meal-id">
+
+        <label>Name
+          <input type="text" id="name" required placeholder="e.g. Poha, Sandwiches">
+        </label>
+
+        <label>Category
+          <div id="category-chips" class="chip-group"></div>
+          <input type="hidden" id="category" value="breakfast">
+        </label>
+
+        <div class="row">
+          <label>Ready by
+            <input type="time" id="scheduled_time" required>
+          </label>
+          <label>Prep (min before)
+            <input type="number" id="prep_minutes" min="0" value="0">
+          </label>
+        </div>
+
+        <label>Temperature <span class="optional">optional</span>
+          <input type="text" id="temperature" placeholder="e.g. 180C oven">
+        </label>
+
+        <label>Notes <span class="optional">optional</span>
+          <textarea id="notes" placeholder="ingredients, reminders..."></textarea>
+        </label>
+
+        <label>Repeats
+          <div id="repeat-chips" class="chip-group">
+            <button type="button" class="chip active" data-repeat="once">Just once</button>
+            <button type="button" class="chip" data-repeat="daily">Every day</button>
+            <button type="button" class="chip" data-repeat="weekly">Weekdays</button>
+          </div>
+          <input type="hidden" id="repeat_type" value="once">
+        </label>
+
+        <div id="weekday-picker" class="weekdays hidden">
+          <label><input type="checkbox" value="0"><span>Mon</span></label>
+          <label><input type="checkbox" value="1"><span>Tue</span></label>
+          <label><input type="checkbox" value="2"><span>Wed</span></label>
+          <label><input type="checkbox" value="3"><span>Thu</span></label>
+          <label><input type="checkbox" value="4"><span>Fri</span></label>
+          <label><input type="checkbox" value="5"><span>Sat</span></label>
+          <label><input type="checkbox" value="6"><span>Sun</span></label>
+        </div>
+
+        <div class="row">
+          <label>Start date
+            <input type="date" id="start_date" required>
+          </label>
+          <label>End date <span class="optional">optional</span>
+            <input type="date" id="end_date">
+          </label>
+        </div>
+
+        <div class="actions">
+          <button type="submit" id="save-btn" class="btn btn-primary">Save meal</button>
+          <button type="button" id="cancel-btn" class="btn hidden">Cancel edit</button>
+        </div>
+      </form>
+    </section>
+
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="next">
+      <span class="tab-icon">⏰</span><span>Next</span>
+    </button>
+    <button class="tab-btn" data-tab="all">
+      <span class="tab-icon">📋</span><span>All Meals</span>
+    </button>
+    <button class="tab-btn" data-tab="add">
+      <span class="tab-icon">➕</span><span>Add</span>
+    </button>
+  </nav>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
