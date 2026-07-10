@@ -14,11 +14,11 @@
   --radius: 16px;
   --danger: #c0392b;
   --success: #3d8b52;
+  --going-out: #d97e26;
 
   --cat-breakfast: #e8a13c;
   --cat-lunch: #4f9d5e;
   --cat-dinner: #5b73c7;
-  --cat-school: #c0538c;
   --cat-snack: #b8853f;
   --cat-other: #8a8681;
 }
@@ -36,6 +36,7 @@ html[data-theme="dark"] {
   --chip-active-bg: #e8793f;
   --chip-active-text: #14141a;
   --shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
+  --going-out: #e8934f;
 }
 
 * { box-sizing: border-box; }
@@ -87,10 +88,46 @@ html, body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  font-size: 18px;
 }
-#icon-moon { display: none; }
-html[data-theme="dark"] #icon-sun { display: none; }
-html[data-theme="dark"] #icon-moon { display: block; }
+.icon-btn.small { width: 32px; height: 32px; font-size: 16px; }
+
+/* icon shown reflects the chosen MODE (light/dark/auto), not the resolved color */
+#icon-moon, #icon-auto { display: none; }
+html[data-theme-mode="dark"] #icon-sun { display: none; }
+html[data-theme-mode="dark"] #icon-moon { display: block; }
+html[data-theme-mode="auto"] #icon-sun { display: none; }
+html[data-theme-mode="auto"] #icon-auto { display: block; }
+
+.theme-control { position: relative; }
+.theme-menu {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 20;
+  min-width: 120px;
+}
+.theme-option {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.theme-option:hover { background: var(--chip-bg); }
+.theme-option.active { background: var(--chip-active-bg); color: var(--chip-active-text); }
 
 /* ---------- content ---------- */
 .content {
@@ -106,6 +143,7 @@ html[data-theme="dark"] #icon-moon { display: block; }
   margin: 22px 0 10px;
   font-weight: 700;
 }
+.tab-panel .section-title:first-child { margin-top: 0; }
 .muted { color: var(--text-muted); }
 
 /* ---------- next-meal hero card ---------- */
@@ -163,8 +201,23 @@ html[data-theme="dark"] #icon-moon { display: block; }
   padding: 30px 10px;
   color: var(--text-muted);
 }
+.mark-done-btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+}
+.done-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 20px 10px;
+}
+.done-confirm .btn-small { background: var(--chip-bg); }
 
-/* ---------- today list ---------- */
+/* ---------- today / meal lists ---------- */
 .today-list, .meal-list {
   list-style: none;
   margin: 0;
@@ -184,6 +237,7 @@ html[data-theme="dark"] #icon-moon { display: block; }
   box-shadow: var(--shadow);
 }
 .today-item.done { opacity: 0.45; }
+.meal-item.cancelled { opacity: 0.5; }
 .dot {
   width: 10px;
   height: 10px;
@@ -209,15 +263,32 @@ html[data-theme="dark"] #icon-moon { display: block; }
   color: var(--text-muted);
   flex-shrink: 0;
 }
+.badge-going-out {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--going-out);
+  padding: 2px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+}
+.badge-edited {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
 
-/* ---------- all-meals list ---------- */
+/* ---------- list headers / buttons ---------- */
 .list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .list-header .section-title { margin: 0; }
-.meal-item .item-actions {
+.item-actions {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
@@ -233,6 +304,54 @@ html[data-theme="dark"] #icon-moon { display: block; }
   font-size: 14px;
 }
 .icon-action.danger { color: var(--danger); }
+
+/* ---------- calendar ---------- */
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.cal-month-label { font-weight: 700; font-size: 16px; }
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.cal-day {
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+  gap: 3px;
+}
+.cal-day.empty { visibility: hidden; cursor: default; }
+.cal-day.today { border-color: var(--accent); font-weight: 700; }
+.cal-day.selected { background: var(--accent); color: var(--accent-text); }
+.cal-day .cal-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent);
+}
+.cal-day.selected .cal-dot { background: var(--accent-text); }
+
+.day-panel { margin-top: 20px; }
 
 /* ---------- form ---------- */
 .card {
@@ -287,16 +406,44 @@ textarea { min-height: 54px; resize: vertical; }
   border-color: transparent;
 }
 
+/* ---------- toggle switch (going out) ---------- */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+.toggle-row input[type="checkbox"] { display: none; }
+.toggle-track {
+  width: 42px;
+  height: 24px;
+  border-radius: 20px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: left 0.15s ease, background 0.15s ease;
+}
+.toggle-row input:checked + .toggle-track { background: var(--going-out); border-color: transparent; }
+.toggle-row input:checked + .toggle-track .toggle-thumb { left: 20px; background: #fff; }
+
 .weekdays {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin: -6px 0 16px;
 }
-.weekdays label {
-  margin: 0;
-  font-weight: 400;
-}
+.weekdays label { margin: 0; font-weight: 400; }
 .weekdays input { display: none; }
 .weekdays span {
   display: inline-block;
@@ -328,6 +475,10 @@ textarea { min-height: 54px; resize: vertical; }
 }
 .btn-primary { background: var(--accent); color: var(--accent-text); flex: 1; }
 .btn-small { padding: 8px 14px; font-size: 13px; border-radius: 10px; background: var(--chip-bg); }
+
+/* ---------- per-occurrence inline editor ---------- */
+.occurrence-editor { display: block; }
+.occurrence-editor .actions { margin-top: 10px; }
 
 /* ---------- bottom tab bar ---------- */
 .tabbar {

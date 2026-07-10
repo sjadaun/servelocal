@@ -1,0 +1,14 @@
+[Unit]
+Description=ServeLocal display daemon
+After=network.target servelocal_planner.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/servelocal
+ExecStart=/usr/bin/python3 /home/pi/servelocal/display.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

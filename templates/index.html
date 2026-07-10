@@ -3,18 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meal Planner</title>
+<title>ServeLocal</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="app">
 
   <header class="topbar">
-    <div class="brand">🍽️ <span>Meal Planner</span></div>
-    <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme">
-      <svg id="icon-sun" viewBox="0 0 24 24" width="20" height="20"><path d="M12 4.5a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm0 13a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm7.5-6.5a1 1 0 011 1 1 1 0 01-1 1h-1a1 1 0 110-2h1zM6.5 12a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zm10.6-5.1a1 1 0 011.4 1.4l-.7.7a1 1 0 11-1.4-1.4l.7-.7zM6.2 17.8a1 1 0 011.4 1.4l-.7.7a1 1 0 11-1.4-1.4l.7-.7zm11.3 1.4a1 1 0 01-1.4 0l-.7-.7a1 1 0 111.4-1.4l.7.7a1 1 0 010 1.4zM7.6 6.2a1 1 0 01-1.4 0l-.7-.7a1 1 0 111.4-1.4l.7.7a1 1 0 010 1.4zM12 7a5 5 0 100 10 5 5 0 000-10z" fill="currentColor"/></svg>
-      <svg id="icon-moon" viewBox="0 0 24 24" width="20" height="20"><path d="M20.7 14.3A8.5 8.5 0 019.7 3.3a.7.7 0 00-.9-.9A9.9 9.9 0 1021.6 15.2a.7.7 0 00-.9-.9z" fill="currentColor"/></svg>
-    </button>
+    <div class="brand">
+      <div class="brand-row">🍽️ <span>ServeLocal</span></div>
+      <div class="version-tag">v{{ version }}</div>
+    </div>
+    <div class="theme-control">
+      <button id="theme-toggle" class="icon-btn" aria-label="Change theme" title="Change theme">
+        <svg id="icon-sun" viewBox="0 0 24 24" width="20" height="20"><path d="M12 4.5a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm0 13a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm7.5-6.5a1 1 0 011 1 1 1 0 01-1 1h-1a1 1 0 110-2h1zM6.5 12a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zm10.6-5.1a1 1 0 011.4 1.4l-.7.7a1 1 0 11-1.4-1.4l.7-.7zM6.2 17.8a1 1 0 011.4 1.4l-.7.7a1 1 0 11-1.4-1.4l.7-.7zm11.3 1.4a1 1 0 01-1.4 0l-.7-.7a1 1 0 111.4-1.4l.7.7a1 1 0 010 1.4zM7.6 6.2a1 1 0 01-1.4 0l-.7-.7a1 1 0 111.4-1.4l.7.7a1 1 0 010 1.4zM12 7a5 5 0 100 10 5 5 0 000-10z" fill="currentColor"/></svg>
+        <svg id="icon-moon" viewBox="0 0 24 24" width="20" height="20"><path d="M20.7 14.3A8.5 8.5 0 019.7 3.3a.7.7 0 00-.9-.9A9.9 9.9 0 1021.6 15.2a.7.7 0 00-.9-.9z" fill="currentColor"/></svg>
+        <svg id="icon-auto" viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2v16a8 8 0 010-16z" fill="currentColor"/></svg>
+      </button>
+      <div id="theme-menu" class="theme-menu hidden">
+        <button type="button" class="theme-option" data-mode="light">☀️ Light</button>
+        <button type="button" class="theme-option" data-mode="dark">🌙 Dark</button>
+        <button type="button" class="theme-option" data-mode="auto">🕐 Auto</button>
+      </div>
+    </div>
   </header>
 
   <main class="content">
@@ -24,9 +35,29 @@
       <div id="next-card" class="next-card">
         <p class="muted">Loading…</p>
       </div>
-
       <h3 class="section-title">Today</h3>
       <ul id="today-list" class="today-list"></ul>
+    </section>
+
+    <!-- CALENDAR TAB -->
+    <section id="tab-calendar" class="tab-panel hidden">
+      <div class="cal-nav">
+        <button id="cal-prev" class="icon-btn small">‹</button>
+        <div id="cal-month-label" class="cal-month-label">July 2026</div>
+        <button id="cal-next" class="icon-btn small">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
+
+      <div class="day-panel">
+        <div class="list-header">
+          <h3 class="section-title" id="day-panel-title">Today</h3>
+          <button id="add-for-day" class="btn btn-small">+ New</button>
+        </div>
+        <ul id="day-occurrence-list" class="meal-list"></ul>
+      </div>
     </section>
 
     <!-- ALL MEALS TAB -->
@@ -53,18 +84,23 @@
           <input type="hidden" id="category" value="breakfast">
         </label>
 
+        <label class="toggle-row">
+          <span>Going out to eat?</span>
+          <input type="checkbox" id="going_out">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+        <label id="going-out-place-wrap" class="hidden">Where?
+          <input type="text" id="going_out_place" placeholder="e.g. Barbeque Nation, Anna Nagar">
+        </label>
+
         <div class="row">
-          <label>Ready by
+          <label id="time-label"><span class="label-text">Ready by</span>
             <input type="time" id="scheduled_time" required>
           </label>
-          <label>Prep (min before)
+          <label id="prep-label"><span class="label-text">Prep (min before)</span>
             <input type="number" id="prep_minutes" min="0" value="0">
           </label>
         </div>
-
-        <label>Temperature <span class="optional">optional</span>
-          <input type="text" id="temperature" placeholder="e.g. 180C oven">
-        </label>
 
         <label>Notes <span class="optional">optional</span>
           <textarea id="notes" placeholder="ingredients, reminders..."></textarea>
@@ -75,6 +111,7 @@
             <button type="button" class="chip active" data-repeat="once">Just once</button>
             <button type="button" class="chip" data-repeat="daily">Every day</button>
             <button type="button" class="chip" data-repeat="weekly">Weekdays</button>
+            <button type="button" class="chip" data-repeat="monthly">Monthly</button>
           </div>
           <input type="hidden" id="repeat_type" value="once">
         </label>
@@ -88,6 +125,7 @@
           <label><input type="checkbox" value="5"><span>Sat</span></label>
           <label><input type="checkbox" value="6"><span>Sun</span></label>
         </div>
+        <p id="monthly-hint" class="muted hidden" style="margin:-8px 0 16px; font-size:12.5px;"></p>
 
         <div class="row">
           <label>Start date
@@ -111,6 +149,9 @@
     <button class="tab-btn active" data-tab="next">
       <span class="tab-icon">⏰</span><span>Next</span>
     </button>
+    <button class="tab-btn" data-tab="calendar">
+      <span class="tab-icon">📅</span><span>Calendar</span>
+    </button>
     <button class="tab-btn" data-tab="all">
       <span class="tab-icon">📋</span><span>All Meals</span>
     </button>
@@ -120,6 +161,36 @@
   </nav>
 
 </div>
+
+<!-- template for an inline per-occurrence edit form, cloned by JS -->
+<template id="occurrence-editor-template">
+  <li class="occurrence-editor card">
+    <div class="chip-group oe-category"></div>
+    <label class="toggle-row">
+      <span>Going out to eat?</span>
+      <input type="checkbox" class="oe-going-out">
+      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+    </label>
+    <label class="oe-place-wrap hidden">Where?
+      <input type="text" class="oe-place">
+    </label>
+    <div class="row">
+      <label class="oe-time-label"><span class="label-text">Ready by</span>
+        <input type="time" class="oe-time">
+      </label>
+      <label class="oe-prep-label"><span class="label-text">Prep (min before)</span>
+        <input type="number" class="oe-prep" min="0">
+      </label>
+    </div>
+    <label>Notes
+      <textarea class="oe-notes"></textarea>
+    </label>
+    <div class="actions">
+      <button type="button" class="btn btn-primary oe-save">Save (this day only)</button>
+      <button type="button" class="btn oe-cancel">Cancel</button>
+    </div>
+  </li>
+</template>
 
 <script src="/static/app.js"></script>
 </body>

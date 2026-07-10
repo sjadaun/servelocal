@@ -1,6 +1,6 @@
 flask
 flask-cors
 Pillow
-st7789
+requests
 spidev
-RPi.GPIO
+gpiozero
