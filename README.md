@@ -16,6 +16,7 @@ with zero backend changes.
 | `display.py` | Standalone daemon that draws to the SPI screen, incl. weather |
 | `templates/index.html`, `static/*` | The web UI |
 | `servelocal_planner.service`, `servelocal_display.service` | systemd units to run both on boot |
+| `install.sh` | Installs (or updates) everything above in one step -- see below |
 
 The web server and the display daemon are **two separate processes** that
 both read/write the same SQLite file, so the screen keeps refreshing
@@ -28,21 +29,40 @@ sudo raspi-config
 # Interface Options -> SPI -> Enable -> reboot
 ```
 
-## 2. Install dependencies
+## 2. Install (or update)
+
+```bash
+git clone <your-repo-or-copy-this-folder> servelocal
+cd servelocal
+sudo ./install.sh
+```
+
+This deploys everything to `/var/lib/servelocal`, creates a Python venv
+there, installs the systemd units, and starts both services. **It's safe to
+re-run** any time you pull new changes -- it updates the code in place and
+never touches your existing `mealplanner.db`, so your meals and settings
+survive updates.
+
+By default it installs for the `pi` user; override with
+`sudo SERVICE_USER=myuser INSTALL_DIR=/opt/servelocal ./install.sh` if you
+need something different.
+
+<details>
+<summary>Prefer to do it by hand instead? (click to expand)</summary>
 
 ```bash
 sudo apt update
-sudo apt install -y python3-pip python3-venv fonts-dejavu
-cd /home/pi
-git clone <your-repo-or-copy-this-folder> servelocal
-cd servelocal
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+sudo apt install -y python3-pip python3-venv fonts-dejavu-core rsync
+sudo mkdir -p /var/lib/servelocal
+sudo cp -r app.py database.py display.py static templates requirements.txt version.txt /var/lib/servelocal/
+cd /var/lib/servelocal
+sudo python3 -m venv venv
+sudo venv/bin/pip install -r requirements.txt
+sudo cp servelocal_planner.service servelocal_display.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now servelocal_planner.service servelocal_display.service
 ```
-
-> If you used a venv, update `ExecStart` in the two `.service` files to
-> point at `venv/bin/python3` instead of `/usr/bin/python3`.
+</details>
 
 ## 3. Set your location for weather
 
@@ -53,21 +73,25 @@ won't hammer the API or need much bandwidth on a Pi Zero.
 
 ## 4. Confirm the display driver
 
-This project assumes an **ST7789** driven 240x240 SPI panel (the most common
-chip for these boards) using the `st7789` pip package. Wiring assumed:
+This project talks to an **ST7789** driven 240x240 SPI panel directly over
+raw SPI (`spidev`) with GPIO reset/DC/backlight lines via `gpiozero` -- no
+vendor display library required. Wiring assumed:
 
 ```
 VCC -> 3V3      DIN -> GPIO10 (MOSI)   CLK -> GPIO11 (SCLK)
 GND -> GND      CS  -> GPIO8  (CE0)    DC  -> GPIO25
-RST -> GPIO27   BL  -> GPIO24 (optional backlight control)
+RST -> GPIO27   BL  -> GPIO24 (backlight control)
 ```
 
 If your board's silkscreen uses different pins, edit the `PIN_*` constants
 at the top of `display.py`. If it's a different driver chip entirely (e.g.
-GC9A01, ST7735), only `init_display()` needs to change — everything else
-just paints onto a PIL `Image`.
+GC9A01, ST7735), only `init_display()` and `push_frame()` need to change —
+everything else just paints onto a PIL `Image`.
 
-## 5. Try it manually first
+## 5. Try it manually first (optional)
+
+If you want to poke at things before running `install.sh`, or you're
+iterating on the code:
 
 ```bash
 python3 app.py        # in one terminal -> visit http://<pi-ip>:8080
@@ -75,20 +99,45 @@ python3 display.py    # in another terminal -> screen should light up
 ```
 
 Add a meal or two from the web UI and confirm the screen updates within
-~20 seconds, and the weather strip appears at the top within a few seconds
+~8 seconds, and the weather strip appears at the top within a few seconds
 (needs internet access).
 
-## 6. Run both on boot
+## 6. Boot behavior
 
-```bash
-sudo cp servelocal_planner.service servelocal_display.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now servelocal_planner.service
-sudo systemctl enable --now servelocal_display.service
+`install.sh` already enables both services to start on boot, so normally
+you don't need to do anything else here. A couple of things worth knowing:
 
-journalctl -u servelocal_planner -f   # check logs if something's off
-journalctl -u servelocal_display -f
-```
+- **The display starts as early as possible**, before it waits on the
+  network or the web server, and shows a "ServeLocal / Starting…" splash
+  screen immediately -- useful proof-of-life on a Pi with no monitor/desktop,
+  since otherwise the screen would just stay blank for however long the rest
+  of boot takes. It creates its own database if the web server hasn't
+  gotten to it yet, so the order they start in doesn't matter.
+- Check on things any time with:
+  ```bash
+  systemctl status servelocal_planner servelocal_display
+  journalctl -u servelocal_planner -f
+  journalctl -u servelocal_display -f
+  ```
+
+## Theme: one shared setting, not a per-browser preference
+
+Light/Dark/Auto is a single setting stored on the Pi (`app_settings` table),
+not something each browser remembers independently. Changing it from the
+web UI changes the physical display too, and vice versa conceptually --
+they both read the same value. "Auto" is resolved from the **server's**
+clock (6 AM-7 PM = light, otherwise dark), not the browser's OS theme,
+since the physical screen has no such concept to borrow from.
+
+Two things that can make a theme change *look* delayed or wrong if you're
+not expecting them:
+- The physical display only redraws every `REFRESH_SECONDS` (8s by
+  default) -- toggling the web UI and immediately checking the screen can
+  catch the previous frame.
+- Browsers cache static JS/CSS. The web UI's `<link>`/`<script>` tags are
+  cache-busted using `version.txt`, so bumping that file after a code
+  change forces browsers to fetch the new files instead of running stale
+  cached ones.
 
 ## How scheduling works
 
@@ -148,6 +197,8 @@ HTTP status codes are meaningful: `200` ok, `201` created, `404` not found,
 | DELETE | `/meals/{id}` | Delete a series entirely |
 | GET | `/today` | Today's occurrences, each with a `done` flag |
 | GET | `/next` | The single soonest upcoming occurrence, or `null` |
+| GET | `/theme` | `{ "mode": "light"/"dark"/"auto", "resolved": "light"/"dark" }` |
+| PUT | `/theme` | Set the theme mode -- **shared** by the web UI and the physical display, see below |
 | GET | `/calendar?year=&month=` | `{ "YYYY-MM-DD": count }` for that month |
 | GET | `/calendar/{date}` | All occurrences on that date (incl. skipped ones) |
 | PUT | `/meals/{id}/occurrences/{date}` | Override or skip (`cancelled:true`) a single occurrence |

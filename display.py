@@ -28,7 +28,7 @@ try:
 except ImportError:
     requests = None
 
-REFRESH_SECONDS = 20
+REFRESH_SECONDS = 8
 WEATHER_REFRESH_SECONDS = 15 * 60  # weather doesn't need to be near-real-time
 
 # Set this to your location -- defaults to Chennai, IN. Get coordinates for
@@ -56,11 +56,59 @@ def load_font(name, size):
 
 FONT_WEATHER = load_font("DejaVuSans-Bold.ttf", 13)
 FONT_TIME = load_font("DejaVuSans-Bold.ttf", 16)
-FONT_LABEL = load_font("DejaVuSans-Bold.ttf", 16)
-FONT_MEAL = load_font("DejaVuSans-Bold.ttf", 36)   # fits on one line
-FONT_MEAL_WRAP = load_font("DejaVuSans-Bold.ttf", 24)  # used when it needs 2 lines
 FONT_SMALL = load_font("DejaVuSans.ttf", 14)
-FONT_TINY = load_font("DejaVuSans.ttf", 13)
+
+# Two size presets for the "next meal" block. ROOMY is tried first so short
+# content (the common case) fills the screen instead of leaving the bottom
+# empty; COMPACT is the fallback that's guaranteed to fit even the longest
+# realistic combination (2-line name + going-out place + prep + notes).
+FONT_LABEL_COMPACT = load_font("DejaVuSans-Bold.ttf", 16)
+FONT_LABEL_ROOMY = load_font("DejaVuSans-Bold.ttf", 19)
+FONT_MEAL_COMPACT = load_font("DejaVuSans-Bold.ttf", 36)        # 1 line
+FONT_MEAL_WRAP_COMPACT = load_font("DejaVuSans-Bold.ttf", 24)   # 2 lines
+FONT_MEAL_ROOMY = load_font("DejaVuSans-Bold.ttf", 40)          # 1 line
+FONT_MEAL_WRAP_ROOMY = load_font("DejaVuSans-Bold.ttf", 27)     # 2 lines
+FONT_TINY_COMPACT = load_font("DejaVuSans.ttf", 13)
+FONT_TINY_ROOMY = load_font("DejaVuSans.ttf", 16)
+
+# kept for any external reference; render_frame() now picks per-preset fonts
+FONT_LABEL = FONT_LABEL_COMPACT
+FONT_MEAL = FONT_MEAL_COMPACT
+FONT_MEAL_WRAP = FONT_MEAL_WRAP_COMPACT
+FONT_TINY = FONT_TINY_COMPACT
+
+# divider_gap = space between last content line and the divider.
+# summary_gap = space between the divider and the footer summary line.
+# (Kept as two separate offsets rather than one combined number, since
+# conflating them previously caused an 8px, screen-edge-clipping regression.)
+# divider_gap = space between last content line and the divider.
+# summary_gap = space between the divider and the footer summary line.
+# COMPACT's gaps are sized using each font's real ascent+descent (not a
+# guess) so that even the worst realistic case -- a 2-line wrapped name
+# with a going-out place, a prep/leave-by time, AND a note all present at
+# once -- keeps the summary line's full rendered height inside the 240px
+# canvas, not just its top-left anchor point.
+PRESET_COMPACT = {
+    "label_font": FONT_LABEL_COMPACT, "tiny_font": FONT_TINY_COMPACT,
+    "meal_font": FONT_MEAL_COMPACT, "meal_line_h": 42,
+    "meal_wrap_font": FONT_MEAL_WRAP_COMPACT, "meal_wrap_line_h": 30,
+    "next_up_gap": 20, "meal_gap": 6, "ready_gap": 16,
+    "detail_gap": 14, "divider_gap": 6, "summary_gap": 14,
+}
+PRESET_ROOMY = {
+    "label_font": FONT_LABEL_ROOMY, "tiny_font": FONT_TINY_ROOMY,
+    "meal_font": FONT_MEAL_ROOMY, "meal_line_h": 46,
+    "meal_wrap_font": FONT_MEAL_WRAP_ROOMY, "meal_wrap_line_h": 33,
+    "next_up_gap": 28, "meal_gap": 12, "ready_gap": 22,
+    "detail_gap": 20, "divider_gap": 14, "summary_gap": 18,
+}
+
+# Reserve = the summary font's real (ascent+descent) plus a small safety
+# margin, so the fit-check guarantees the FULL rendered text stays on
+# screen -- not just its top-left draw anchor.
+def _footer_reserve(preset):
+    ascent, descent = preset["tiny_font"].getmetrics()
+    return ascent + descent + 3
 
 # The theme mode (light / dark / auto) is a single setting shared with the
 # web UI via the database -- see database.resolve_theme(). Each theme here
@@ -282,14 +330,31 @@ def _wrap_lines(d, text, font, max_width, max_lines=2):
     return lines
 
 
-def fit_meal_name(d, name, max_width):
-    """Returns (lines, font, line_height). Tries one line at the big font
-    first; if it doesn't fit, wraps to up to 2 lines at a smaller font
-    instead of just chopping the name off."""
-    if d.textlength(name, font=FONT_MEAL) <= max_width:
-        return [name], FONT_MEAL, 42
-    lines = _wrap_lines(d, name, FONT_MEAL_WRAP, max_width, max_lines=2)
-    return lines, FONT_MEAL_WRAP, 30
+def fit_meal_name(d, name, max_width, preset):
+    """Returns (lines, font, line_height) for the given size preset. Tries
+    one line at the preset's big font first; if it doesn't fit, wraps to up
+    to 2 lines at the preset's smaller font instead of just chopping it off."""
+    if d.textlength(name, font=preset["meal_font"]) <= max_width:
+        return [name], preset["meal_font"], preset["meal_line_h"]
+    lines = _wrap_lines(d, name, preset["meal_wrap_font"], max_width, max_lines=2)
+    return lines, preset["meal_wrap_font"], preset["meal_wrap_line_h"]
+
+
+def _meal_block_height(d, meal, going_out, preset):
+    """Dry-run the vertical space the 'next meal' block would need under
+    this preset, without drawing anything -- used to decide whether ROOMY
+    fits or COMPACT is needed instead."""
+    lines, font, line_h = fit_meal_name(d, meal["name"], 216, preset)
+    h = preset["next_up_gap"]
+    h += line_h * len(lines) + preset["meal_gap"]
+    h += preset["ready_gap"]
+    if going_out and meal["going_out_place"]:
+        h += preset["detail_gap"]
+    if meal["prep_minutes"]:
+        h += preset["detail_gap"]
+    if meal["notes"]:
+        h += preset["detail_gap"]
+    return h, lines, font, line_h
 
 
 def render_frame():
@@ -324,61 +389,112 @@ def render_frame():
     occ = db.get_next_meal(now)
 
     if occ is None:
-        d.text((12, 66), "No meals scheduled", font=FONT_SMALL, fill=c["muted"])
-        divider_y, summary_y = 182, 202
+        d.text((12, 90), "No meals scheduled", font=FONT_MEAL_WRAP_ROOMY, fill=c["muted"])
+        divider_y, summary_y = 200, 220
     else:
         meal, when = occ["meal"], occ["when"]
         going_out = bool(meal["going_out"])
         color = c["going_out"] if going_out else c["categories"].get(meal["category"], c["categories"]["other"])
 
+        # Try ROOMY first so short/typical content fills the screen with
+        # bigger text instead of leaving the bottom half empty; only fall
+        # back to COMPACT if this specific meal's content is long enough
+        # that ROOMY would run past the bottom of the screen.
+        content_h, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, PRESET_ROOMY)
+        roomy_summary_y = 52 + content_h + PRESET_ROOMY["divider_gap"] + PRESET_ROOMY["summary_gap"]
+        if roomy_summary_y + _footer_reserve(PRESET_ROOMY) <= 240:
+            preset = PRESET_ROOMY
+        else:
+            preset = PRESET_COMPACT
+            _, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, preset)
+
         y = 52
         tag = "EATING OUT" if going_out else meal["category"].upper()
-        d.text((12, y), f"NEXT UP:  {tag}", font=FONT_LABEL, fill=color)
-        y += 24
+        d.text((12, y), f"NEXT UP:  {tag}", font=preset["label_font"], fill=color)
+        y += preset["next_up_gap"]
 
-        lines, meal_font, line_h = fit_meal_name(d, meal["name"], 216)
         for line in lines:
             d.text((12, y), line, font=meal_font, fill=c["text"])
             y += line_h
-        y += 8
+        y += preset["meal_gap"]
 
         countdown = format_countdown(when - now)
         label = "there by" if going_out else "ready by"
         d.text((12, y), f"{label} {meal['scheduled_time']} ({countdown})",
-               font=FONT_TINY, fill=c["detail"])
-        y += 18
+               font=preset["tiny_font"], fill=c["detail"])
+        y += preset["ready_gap"]
 
         if going_out and meal["going_out_place"]:
             place = meal["going_out_place"]
             if len(place) > 30:
                 place = place[:29] + "…"
-            d.text((12, y), f"@ {place}", font=FONT_TINY, fill=c["amber"])
-            y += 16
+            d.text((12, y), f"@ {place}", font=preset["tiny_font"], fill=c["amber"])
+            y += preset["detail_gap"]
         if meal["prep_minutes"]:
             start_by = format_time_12h(when - datetime.timedelta(minutes=meal["prep_minutes"]))
             prep_label = "leave by" if going_out else "start prep by"
-            d.text((12, y), f"{prep_label} {start_by}", font=FONT_TINY, fill=c["amber"])
-            y += 16
+            d.text((12, y), f"{prep_label} {start_by}", font=preset["tiny_font"], fill=c["amber"])
+            y += preset["detail_gap"]
         if meal["notes"]:
             note = meal["notes"]
             if len(note) > 34:
                 note = note[:33] + "…"
-            d.text((12, y), note, font=FONT_TINY, fill=c["muted"])
-            y += 16
+            d.text((12, y), note, font=preset["tiny_font"], fill=c["muted"])
+            y += preset["detail_gap"]
 
-        divider_y, summary_y = y + 8, y + 24
+        divider_y = y + preset["divider_gap"]
+        summary_y = divider_y + preset["summary_gap"]
 
     d.line((12, divider_y, 228, divider_y), fill=c["divider"], width=1)
     today = db.get_today_meals(now)
     remaining = [t for t in today if not t["done"]]
     summary = f"{len(remaining)} meal(s) left today" if remaining else "All done for today"
-    d.text((12, summary_y), summary, font=FONT_TINY, fill=c["dim"])
+    summary_font = preset["tiny_font"] if occ is not None else FONT_TINY_ROOMY
+    d.text((12, summary_y), summary, font=summary_font, fill=c["dim"])
+
+    return img
+
+
+def render_splash(message="Starting…"):
+    """Shown immediately on service start, before the DB/meal data is
+    necessarily ready -- since the display service now starts very early
+    at boot (see servelocal_display.service), this is what gives visible
+    proof of life on a screen with no desktop environment behind it."""
+    theme_mode = "dark"
+    try:
+        theme_mode = db.resolve_theme(db.get_theme_mode())
+    except Exception:
+        pass  # DB may not exist yet on a very first boot -- that's fine, default to dark
+    c = THEMES[theme_mode]
+
+    img = Image.new("RGB", (240, 240), c["bg"])
+    d = ImageDraw.Draw(img)
+
+    title = "ServeLocal"
+    tw = d.textlength(title, font=FONT_MEAL_ROOMY)
+    d.text(((240 - tw) / 2, 92), title, font=FONT_MEAL_ROOMY, fill=c["text"])
+
+    mw = d.textlength(message, font=FONT_TINY_ROOMY)
+    d.text(((240 - mw) / 2, 148), message, font=FONT_TINY_ROOMY, fill=c["muted"])
 
     return img
 
 
 def main():
     init_display()
+    push_frame(render_splash("Starting…"))
+
+    # display.py can now start before servelocal_planner.service (it starts
+    # as early as boot allows, to show this splash ASAP) -- init_db() is
+    # idempotent (CREATE TABLE IF NOT EXISTS), so it's safe to call from
+    # both services regardless of which one wins the race.
+    try:
+        db.init_db()
+    except Exception as exc:
+        print(f"[display] db init error: {exc}")
+        push_frame(render_splash("Waiting for storage…"))
+        time.sleep(3)
+
     try:
         while True:
             try:
