@@ -40,7 +40,7 @@ import datetime
 import calendar
 from contextlib import contextmanager
 
-DB_PATH = "/home/pi/servelocal/mealplanner.db"  # adjust if you install elsewhere
+DB_PATH = "/var/lib/servelocal/mealplanner.db"  # adjust if you install elsewhere
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meal_slots (

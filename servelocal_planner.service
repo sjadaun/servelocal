@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/servelocal
-ExecStart=/usr/bin/python3 /home/pi/servelocal/app.py
+WorkingDirectory=/var/lib/servelocal
+ExecStart=/var/lib/servelocal/venv/bin/python3 /var/lib/servelocal/app.py
 Restart=on-failure
 RestartSec=5
 
