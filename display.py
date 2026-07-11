@@ -20,7 +20,7 @@ import datetime
 from PIL import Image, ImageDraw, ImageFont
 import spidev
 from gpiozero import DigitalOutputDevice
-
+import math
 import database as db
 
 try:
@@ -28,7 +28,7 @@ try:
 except ImportError:
     requests = None
 
-REFRESH_SECONDS = 8
+REFRESH_SECONDS = 5
 WEATHER_REFRESH_SECONDS = 15 * 60  # weather doesn't need to be near-real-time
 
 # Set this to your location -- defaults to Chennai, IN. Get coordinates for
@@ -43,6 +43,14 @@ PIN_BL = 24
 SPI_PORT = 0
 SPI_CS = 0  # CE0
 SPI_SPEED_HZ = 40_000_000
+
+# Many ST7789 panels render colors inverted (near-black shows as near-white
+# and vice versa) unless the Display Inversion ON command is sent during
+# init. This is extremely common and easy to miss if your test colors
+# happen to still look plausible either way. If, after this change, colors
+# still look wrong (or were fine before and are now wrong), flip this to
+# False -- it's a single toggle, not a deeper code issue.
+PANEL_INVERT_COLORS = True
 
 FONT_DIR = "/usr/share/fonts/truetype/dejavu/"
 
@@ -67,6 +75,7 @@ FONT_LABEL_ROOMY = load_font("DejaVuSans-Bold.ttf", 19)
 FONT_MEAL_COMPACT = load_font("DejaVuSans-Bold.ttf", 36)        # 1 line
 FONT_MEAL_WRAP_COMPACT = load_font("DejaVuSans-Bold.ttf", 24)   # 2 lines
 FONT_MEAL_ROOMY = load_font("DejaVuSans-Bold.ttf", 40)          # 1 line
+FONT_MEAL_SPLASH = load_font("DejaVuSans-Bold.ttf", 30)          # 1 line
 FONT_MEAL_WRAP_ROOMY = load_font("DejaVuSans-Bold.ttf", 27)     # 2 lines
 FONT_TINY_COMPACT = load_font("DejaVuSans.ttf", 13)
 FONT_TINY_ROOMY = load_font("DejaVuSans.ttf", 16)
@@ -102,6 +111,7 @@ PRESET_ROOMY = {
     "next_up_gap": 28, "meal_gap": 12, "ready_gap": 22,
     "detail_gap": 20, "divider_gap": 14, "summary_gap": 18,
 }
+FONT_BRAND = load_font("DejaVuSans.ttf", 32)
 
 # Reserve = the summary font's real (ascent+descent) plus a small safety
 # margin, so the fit-check guarantees the FULL rendered text stays on
@@ -124,6 +134,7 @@ THEMES = {
         "detail": (200, 200, 200),
         "divider": (50, 50, 55),
         "amber": (230, 180, 90),
+        "accent": "#4CAF50",
         "categories": {
             "breakfast": (240, 170, 60),
             "lunch": (110, 190, 110),
@@ -143,6 +154,7 @@ THEMES = {
         "detail": (70, 66, 60),
         "divider": (222, 218, 208),
         "amber": (170, 110, 15),
+        "accent": "#2E7D32",
         "categories": {
             "breakfast": (190, 120, 20),
             "lunch": (50, 120, 55),
@@ -247,6 +259,9 @@ def init_display():
     _send_command(0x11)  # Sleep Out
     time.sleep(0.12)
 
+    if PANEL_INVERT_COLORS:
+        _send_command(0x21)  # Display Inversion ON
+
     _send_command(0x36)  # Memory Data Access Control (display orientation)
     _send_data(0x00)     # standard vertical mode
 
@@ -259,7 +274,10 @@ def init_display():
 def push_frame(image):
     """Convert a PIL image to RGB565 and stream it to the panel over SPI."""
     img = image.convert("RGB").resize((240, 240))
-    img_data = list(img.getdata())
+    if hasattr(img, "get_flattened_data"):  # newer Pillow; getdata() is deprecated
+        img_data = img.get_flattened_data()
+    else:
+        img_data = list(img.getdata())
     buf = bytearray(240 * 240 * 2)
 
     idx = 0
@@ -454,35 +472,165 @@ def render_frame():
 
     return img
 
+def draw_icon(draw, cx, cy, fork_x_offset=0, knife_x_offset=0, scale=1.0, 
+              plate_color=(255, 255, 255), fork_color=(255, 255, 255), knife_color=(255, 255, 255)):
+    """Draws a giant, multi-colored ServeLocal logo using primitive geometric shapes."""
+    plate_radius = int(32 * scale)
+    fork_h = int(60 * scale)
+    knife_h = int(60 * scale)
 
-def render_splash(message="Starting…"):
-    """Shown immediately on service start, before the DB/meal data is
-    necessarily ready -- since the display service now starts very early
-    at boot (see servelocal_display.service), this is what gives visible
-    proof of life on a screen with no desktop environment behind it."""
-    theme_mode = "dark"
-    try:
-        theme_mode = db.resolve_theme(db.get_theme_mode())
-    except Exception:
-        pass  # DB may not exist yet on a very first boot -- that's fine, default to dark
-    c = THEMES[theme_mode]
+    # 1. Draw Plate
+    draw.ellipse(
+        [cx - plate_radius, cy - plate_radius, cx + plate_radius, cy + plate_radius],
+        fill=plate_color,
+    )
 
-    img = Image.new("RGB", (240, 240), c["bg"])
-    d = ImageDraw.Draw(img)
+    # 2. Draw Fork
+    fx = cx - int(48 * scale) + fork_x_offset
+    fy_top = cy - (fork_h // 2)
+    fy_bot = cy + (fork_h // 2)
+    draw.line([(fx, cy), (fx, fy_bot)], fill=fork_color, width=max(1, int(4 * scale)))
+    draw.line([(fx - int(9 * scale), cy), (fx + int(9 * scale), cy)], fill=fork_color, width=max(1, int(4 * scale)))
+    for prong_offset in [-8, 0, 8]:
+        px = fx + int(prong_offset * scale)
+        draw.line([(px, cy), (px, fy_top)], fill=fork_color, width=max(1, int(3 * scale)))
 
-    title = "ServeLocal"
-    tw = d.textlength(title, font=FONT_MEAL_ROOMY)
-    d.text(((240 - tw) / 2, 92), title, font=FONT_MEAL_ROOMY, fill=c["text"])
+    # 3. Draw Knife
+    kx = cx + int(48 * scale) + knife_x_offset
+    ky_top = cy - (knife_h // 2)
+    ky_bot = cy + (knife_h // 2)
+    draw.line([(kx, ky_top), (kx, ky_bot)], fill=knife_color, width=max(1, int(4 * scale)))
+    draw.polygon([(kx, ky_top), (kx + int(9 * scale), ky_top + int(14 * scale)), (kx, cy)], fill=knife_color)
 
-    mw = d.textlength(message, font=FONT_TINY_ROOMY)
-    d.text(((240 - mw) / 2, 148), message, font=FONT_TINY_ROOMY, fill=c["muted"])
 
-    return img
+def draw_glowing_border(draw, width, height, current_step, total_steps, base_color):
+    """Draws a multi-layered, pulsating neon-glow border using sine-wave color shifts."""
+    cycle_factor = (math.sin((current_step / total_steps) * math.pi * 2) + 1) / 2
+    
+    br, bg, bb = base_color
+    
+    # Layer 1: Inner Dim Glow (3 pixels deep)
+    glow_r1 = int(br * (0.4 + cycle_factor * 0.3))
+    glow_g1 = int(bg * (0.4 + cycle_factor * 0.3))
+    glow_b1 = int(bb * (0.4 + cycle_factor * 0.3))
+    draw.rectangle([(2, 2), (width - 3, height - 3)], outline=(glow_r1, glow_g1, glow_b1), width=1)
 
+    # Layer 2: Main Vivid Light Frame (2 pixels deep)
+    glow_r2 = int(br * (0.7 + cycle_factor * 0.3))
+    glow_g2 = int(bg * (0.7 + cycle_factor * 0.3))
+    glow_b2 = int(bb * (0.7 + cycle_factor * 0.3))
+    draw.rectangle([(1, 1), (width - 2, height - 2)], outline=(glow_r2, glow_g2, glow_b2), width=1)
+    
+    # Layer 3: Ultra-Bright White/Neon Core Edge (1 pixel thick)
+    core_r = min(255, int(br + (255 - br) * 0.4 * cycle_factor))
+    core_g = min(255, int(bg + (255 - bg) * 0.4 * cycle_factor))
+    core_b = min(255, int(bb + (255 - bb) * 0.4 * cycle_factor))
+    draw.rectangle([(0, 0), (width - 1, height - 1)], outline=(core_r, core_g, core_b), width=1)
+
+
+def run_splash_screen():
+    """Renders the splash animation surrounded by an active, pulsing neon border frame."""
+    print("[Display] Running massive splash intro with glowing border frame...")
+
+    # Extract theme configurations
+    bg_color = THEMES["dark"]["bg"]
+    fork_color = THEMES["dark"]["categories"]["breakfast"]  # Amber tuple
+    knife_color = THEMES["dark"]["categories"]["dinner"]    # Indigo Blue tuple
+    plate_color = (255, 255, 255)
+    
+    glow_base_color = THEMES["dark"]["categories"]["breakfast"]
+
+    # Canvas Setup
+    w, h = 240, 240
+    center_x, center_y = w // 2, h // 2 - 35
+    global_step = 0  
+
+    # --- PHASE 1: Slide In Utensils (30 Frames) ---
+    steps_phase1 = 30
+    for i in range(steps_phase1):
+        img = Image.new("RGB", (w, h), color=bg_color)
+        draw = ImageDraw.Draw(img)
+
+        progress = i / (steps_phase1 - 1)
+        easing = 1 - math.pow(1 - progress, 3)
+
+        fork_offset = int(-140 * (1 - easing))
+        knife_offset = int(140 * (1 - easing))
+
+        draw_icon(
+            draw, center_x, center_y,
+            fork_x_offset=fork_offset, knife_x_offset=knife_offset,
+            scale=1.0, plate_color=(0, 0, 0), fork_color=fork_color, knife_color=knife_color
+        )
+
+        draw_glowing_border(draw, w, h, global_step, 60, glow_base_color)
+        global_step += 1
+
+        push_frame(img)
+        time.sleep(0.015)
+
+    # --- PHASE 2: Plate Elastic Expansion (15 Frames) ---
+    steps_phase2 = 15
+    for i in range(steps_phase2):
+        img = Image.new("RGB", (w, h), color=bg_color)
+        draw = ImageDraw.Draw(img)
+
+        progress = i / (steps_phase2 - 1)
+        scale_factor = math.sin(progress * math.pi / 2)
+
+        pr, pg, pb = plate_color
+        current_plate_color = (int(pr * scale_factor), int(pg * scale_factor), int(pb * scale_factor))
+
+        draw_icon(
+            draw, center_x, center_y,
+            fork_x_offset=0, knife_x_offset=0,
+            scale=1.0, 
+            plate_color=current_plate_color,
+            fork_color=fork_color, knife_color=knife_color
+        )
+
+        draw_glowing_border(draw, w, h, global_step, 60, glow_base_color)
+        global_step += 1
+
+        push_frame(img)
+        time.sleep(0.015)
+
+    # --- PHASE 3: Text Fade & Persistent Glowing Loop (50 Frames) ---
+    steps_phase3 = 50  
+    brand_text = "ServeLocal"
+
+    # FIXED: Correctly index the bounding box tuple coordinates (right - left) to get string width
+    bbox_b = FONT_BRAND.getbbox(brand_text)
+    text_width = bbox_b[2] - bbox_b[0]
+    bx = (w - text_width) // 2
+    by = center_y + 60  
+
+    for i in range(steps_phase3):
+        img = Image.new("RGB", (w, h), color=bg_color)
+        draw = ImageDraw.Draw(img)
+
+        text_progress = min(1.0, i / 25)
+        alpha = int(255 * text_progress)
+
+        draw_icon(
+            draw, center_x, center_y,
+            fork_x_offset=0, knife_x_offset=0,
+            scale=1.0, plate_color=plate_color, fork_color=fork_color, knife_color=knife_color
+        )
+
+        draw.text((bx, by), brand_text, font=FONT_BRAND, fill=(alpha, alpha, alpha))
+
+        draw_glowing_border(draw, w, h, global_step, 60, glow_base_color)
+        global_step += 1
+
+        push_frame(img)
+        time.sleep(0.02)
+
+    print("[Display] Colorful splash sequence with neon border complete.")
 
 def main():
     init_display()
-    push_frame(render_splash("Starting…"))
+    run_splash_screen()
 
     # display.py can now start before servelocal_planner.service (it starts
     # as early as boot allows, to show this splash ASAP) -- init_db() is
@@ -492,8 +640,7 @@ def main():
         db.init_db()
     except Exception as exc:
         print(f"[display] db init error: {exc}")
-        push_frame(render_splash("Waiting for storage…"))
-        time.sleep(3)
+        run_splash_screen()
 
     try:
         while True:

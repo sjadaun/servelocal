@@ -40,7 +40,7 @@ import datetime
 import calendar
 from contextlib import contextmanager
 
-DB_PATH = "/var/lib/servelocal/mealplanner.db"  # adjust if you install elsewhere
+DB_PATH = "/var/lib/servelocal/db/mealplanner.db"  # adjust if you install elsewhere
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meal_slots (
@@ -142,7 +142,7 @@ def update_meal(meal_id, data):
         conn.execute(
             """UPDATE meal_slots SET
                  name=?, category=?, notes=?, scheduled_time=?, prep_minutes=?,
-                 going_out=?, going_out_place=?, repeat_type=?, repeat_days=?,
+                 going_out=?, going_out_place=?, repeat_type=?, repeat_days=?,Revert / Restore — remove the override or cancellation and fall back to the series default
                  start_date=?, end_date=?, active=?
                WHERE id=?""",
             (

@@ -6,3 +6,4 @@ spidev
 gpiozero
 gpio
 urllib3
+lgpio

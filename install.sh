@@ -15,7 +15,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-/var/lib/servelocal}"
-SERVICE_USER="${SERVICE_USER:-pi}"
+SERVICE_USER="${SERVICE_USER:-servelocal}"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 log()  { echo -e "\033[1;36m==>\033[0m $*"; }
@@ -48,7 +48,7 @@ done
 if $NEED_APT; then
     log "Installing OS packages (python3-venv, python3-pip, fonts-dejavu-core)…"
     apt-get update -qq
-    apt-get install -y python3-venv python3-pip fonts-dejavu-core
+    apt-get install -y python3-venv python3-pip fonts-dejavu-core liblgpio-dev swig
 else
     log "OS packages already present, skipping apt."
 fi
@@ -76,7 +76,7 @@ mkdir -p "$INSTALL_DIR"
 rsync -a --delete \
     --exclude='.git' \
     --exclude='.gitignore' \
-    --exclude='mealplanner.db' \
+    --exclude='db' \
     --exclude='__pycache__' \
     --exclude='venv' \
     --exclude='install.sh' \
