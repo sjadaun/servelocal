@@ -28,7 +28,7 @@ try:
 except ImportError:
     requests = None
 
-REFRESH_SECONDS = 5
+REFRESH_SECONDS = 1
 WEATHER_REFRESH_SECONDS = 15 * 60  # weather doesn't need to be near-real-time
 
 # Set this to your location -- defaults to Chennai, IN. Get coordinates for
@@ -86,39 +86,23 @@ FONT_MEAL = FONT_MEAL_COMPACT
 FONT_MEAL_WRAP = FONT_MEAL_WRAP_COMPACT
 FONT_TINY = FONT_TINY_COMPACT
 
-# divider_gap = space between last content line and the divider.
-# summary_gap = space between the divider and the footer summary line.
-# (Kept as two separate offsets rather than one combined number, since
-# conflating them previously caused an 8px, screen-edge-clipping regression.)
-# divider_gap = space between last content line and the divider.
-# summary_gap = space between the divider and the footer summary line.
-# COMPACT's gaps are sized using each font's real ascent+descent (not a
-# guess) so that even the worst realistic case -- a 2-line wrapped name
-# with a going-out place, a prep/leave-by time, AND a note all present at
-# once -- keeps the summary line's full rendered height inside the 240px
-# canvas, not just its top-left anchor point.
+# The "next meal" block now renders between two fixed bars (top bar with
+# time/wifi, bottom bar with meals-left/weather) rather than floating a
+# divider+summary based on content height. See CONTENT_TOP/CONTENT_BOTTOM
+# and the fit-check in render_frame().
 PRESET_COMPACT = {
     "label_font": FONT_LABEL_COMPACT, "tiny_font": FONT_TINY_COMPACT,
     "meal_font": FONT_MEAL_COMPACT, "meal_line_h": 42,
     "meal_wrap_font": FONT_MEAL_WRAP_COMPACT, "meal_wrap_line_h": 30,
-    "next_up_gap": 20, "meal_gap": 6, "ready_gap": 16,
-    "detail_gap": 14, "divider_gap": 6, "summary_gap": 14,
+    "next_up_gap": 20, "meal_gap": 6, "ready_gap": 16, "detail_gap": 14,
 }
 PRESET_ROOMY = {
     "label_font": FONT_LABEL_ROOMY, "tiny_font": FONT_TINY_ROOMY,
     "meal_font": FONT_MEAL_ROOMY, "meal_line_h": 46,
     "meal_wrap_font": FONT_MEAL_WRAP_ROOMY, "meal_wrap_line_h": 33,
-    "next_up_gap": 28, "meal_gap": 12, "ready_gap": 22,
-    "detail_gap": 20, "divider_gap": 14, "summary_gap": 18,
+    "next_up_gap": 28, "meal_gap": 12, "ready_gap": 22, "detail_gap": 20,
 }
 FONT_BRAND = load_font("DejaVuSans.ttf", 32)
-
-# Reserve = the summary font's real (ascent+descent) plus a small safety
-# margin, so the fit-check guarantees the FULL rendered text stays on
-# screen -- not just its top-left draw anchor.
-def _footer_reserve(preset):
-    ascent, descent = preset["tiny_font"].getmetrics()
-    return ascent + descent + 3
 
 # The theme mode (light / dark / auto) is a single setting shared with the
 # web UI via the database -- see database.resolve_theme(). Each theme here
@@ -214,6 +198,66 @@ def fetch_weather():
     except Exception as exc:
         print(f"[display] weather fetch failed: {exc}")
         return _weather_cache["data"]  # fall back to stale data if we have any
+
+
+WIFI_INTERFACE = "wlan0"
+
+
+def get_wifi_status(interface=WIFI_INTERFACE):
+    """Reads signal strength straight from /proc/net/wireless -- no
+    subprocess, no extra dependency, effectively free to call every frame.
+    Returns {'connected': bool, 'dbm': int|None, 'bars': 0-4}."""
+    try:
+        with open("/proc/net/wireless") as f:
+            for line in f:
+                if not line.strip().startswith(interface):
+                    continue
+                fields = line.split(":", 1)[1].split()
+                # fields: status, link_quality, signal_level(dBm), noise_level, ...
+                dbm = float(fields[2])
+                if dbm > 0:  # some drivers report as unsigned; normalize
+                    dbm -= 256
+                dbm = int(dbm)
+                if dbm >= -50:
+                    bars = 4
+                elif dbm >= -60:
+                    bars = 3
+                elif dbm >= -70:
+                    bars = 2
+                elif dbm >= -80:
+                    bars = 1
+                else:
+                    bars = 0
+                return {"connected": True, "dbm": dbm, "bars": bars}
+    except Exception as exc:
+        print(f"[display] wifi status read failed: {exc}")
+    return {"connected": False, "dbm": None, "bars": 0}
+
+
+def draw_wifi_bars(d, right_x, cy, wifi, active_color, inactive_color):
+    """Draws 4 signal bars (phone-style, increasing height left to right),
+    right-aligned so right_x is the rightmost edge. Returns the left edge x
+    so callers can position other text relative to it."""
+    bar_w, gap, max_h = 4, 2, 16
+    n_bars = 4
+    total_w = n_bars * bar_w + (n_bars - 1) * gap
+    left_x = right_x - total_w
+
+    for i in range(n_bars):
+        bar_h = max_h * (i + 1) // n_bars
+        x0 = left_x + i * (bar_w + gap)
+        x1 = x0 + bar_w
+        y1 = cy + max_h // 2
+        y0 = y1 - bar_h
+        color = active_color if (wifi["connected"] and i < wifi["bars"]) else inactive_color
+        d.rectangle((x0, y0, x1, y1), fill=color)
+
+    if not wifi["connected"]:
+        # small slash through the bars to make "disconnected" unambiguous
+        d.line((left_x - 1, cy + max_h // 2 + 2, right_x + 1, cy - max_h // 2 - 2),
+               fill=inactive_color, width=2)
+
+    return left_x
 
 
 _spi = None
@@ -375,6 +419,12 @@ def _meal_block_height(d, meal, going_out, preset):
     return h, lines, font, line_h
 
 
+TOP_BAR_H = 30
+BOTTOM_BAR_H = 30
+CONTENT_TOP = 52
+CONTENT_BOTTOM = 240 - BOTTOM_BAR_H - 6  # small breathing room above the bottom bar
+
+
 def render_frame():
     theme_mode = db.get_theme_mode()
     c = THEMES[db.resolve_theme(theme_mode)]
@@ -383,50 +433,39 @@ def render_frame():
     d = ImageDraw.Draw(img)
     now = datetime.datetime.now()
 
-    # -- combined time + weather bar --
-    d.rectangle((0, 0, 240, 30), fill=c["topbar_bg"])
+    # -- top bar: time (left) + wifi signal (right) --
+    d.rectangle((0, 0, 240, TOP_BAR_H), fill=c["topbar_bg"])
     time_str = format_time_12h(now)
     d.text((10, 6), time_str, font=FONT_TIME, fill=c["text"])
-    time_end_x = 10 + d.textlength(time_str, font=FONT_TIME)
 
-    weather = fetch_weather()
-    weather_text = (f"{weather['label']} {weather['temp']}°C {weather['humidity']}%"
-                     if weather else "Weather N/A")
-    max_weather_w = 230 - (time_end_x + 10)  # never let it crowd the time
-    truncated = False
-    while d.textlength(weather_text, font=FONT_WEATHER) > max_weather_w and len(weather_text) > 1:
-        weather_text = weather_text[:-1]
-        truncated = True
-    if truncated:
-        weather_text = weather_text.rstrip() + "…"
-    w = d.textlength(weather_text, font=FONT_WEATHER)
-    d.text((230 - w, 8), weather_text, font=FONT_WEATHER, fill=c["topbar_text"])
+    wifi = get_wifi_status()
+    print(wifi)
+    draw_wifi_bars(d, 228, TOP_BAR_H // 2, wifi, c["topbar_text"], c["divider"])
 
-    d.line((12, 42, 228, 42), fill=c["divider"], width=1)
+    #d.line((12, TOP_BAR_H + 12, 228, TOP_BAR_H + 12), fill=c["divider"], width=1)
 
+    # -- next meal content --
     occ = db.get_next_meal(now)
 
     if occ is None:
-        d.text((12, 90), "No meals scheduled", font=FONT_MEAL_WRAP_ROOMY, fill=c["muted"])
-        divider_y, summary_y = 200, 220
+        d.text((12, 90), "No Meals", font=FONT_MEAL_WRAP_ROOMY, fill=c["muted"])
     else:
         meal, when = occ["meal"], occ["when"]
         going_out = bool(meal["going_out"])
         color = c["going_out"] if going_out else c["categories"].get(meal["category"], c["categories"]["other"])
 
         # Try ROOMY first so short/typical content fills the screen with
-        # bigger text instead of leaving the bottom half empty; only fall
-        # back to COMPACT if this specific meal's content is long enough
-        # that ROOMY would run past the bottom of the screen.
+        # bigger text instead of leaving space unused; only fall back to
+        # COMPACT if this specific meal's content is tall enough that ROOMY
+        # would run into the bottom bar.
         content_h, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, PRESET_ROOMY)
-        roomy_summary_y = 52 + content_h + PRESET_ROOMY["divider_gap"] + PRESET_ROOMY["summary_gap"]
-        if roomy_summary_y + _footer_reserve(PRESET_ROOMY) <= 240:
+        if CONTENT_TOP + content_h <= CONTENT_BOTTOM:
             preset = PRESET_ROOMY
         else:
             preset = PRESET_COMPACT
             _, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, preset)
 
-        y = 52
+        y = CONTENT_TOP
         tag = "EATING OUT" if going_out else meal["category"].upper()
         d.text((12, y), f"NEXT UP:  {tag}", font=preset["label_font"], fill=color)
         y += preset["next_up_gap"]
@@ -460,15 +499,29 @@ def render_frame():
             d.text((12, y), note, font=preset["tiny_font"], fill=c["muted"])
             y += preset["detail_gap"]
 
-        divider_y = y + preset["divider_gap"]
-        summary_y = divider_y + preset["summary_gap"]
+    # -- bottom bar: meals left (left) + weather (right) --
+    bar_y = 240 - BOTTOM_BAR_H
+    d.rectangle((0, bar_y, 240, 240), fill=c["topbar_bg"])
+    text_y = bar_y + (BOTTOM_BAR_H - 13) // 2
 
-    d.line((12, divider_y, 228, divider_y), fill=c["divider"], width=1)
     today = db.get_today_meals(now)
     remaining = [t for t in today if not t["done"]]
-    summary = f"{len(remaining)} meal(s) left today" if remaining else "All done for today"
-    summary_font = preset["tiny_font"] if occ is not None else FONT_TINY_ROOMY
-    d.text((12, summary_y), summary, font=summary_font, fill=c["dim"])
+    summary = f"{len(remaining)} Meal(s) left" if remaining else "All done"
+    d.text((10, text_y), summary, font=FONT_WEATHER, fill=c["topbar_text"])
+    summary_end_x = 10 + d.textlength(summary, font=FONT_WEATHER)
+
+    weather = fetch_weather()
+    weather_text = (f"{weather['temp']}°C | {weather['humidity']}%"
+                     if weather else "Weather N/A")
+    max_weather_w = 230 - (summary_end_x + 10)  # never let it crowd the summary
+    truncated = False
+    while d.textlength(weather_text, font=FONT_WEATHER) > max_weather_w and len(weather_text) > 1:
+        weather_text = weather_text[:-1]
+        truncated = True
+    if truncated:
+        weather_text = weather_text.rstrip() + "…"
+    ww = d.textlength(weather_text, font=FONT_WEATHER)
+    d.text((230 - ww, text_y), weather_text, font=FONT_WEATHER, fill=c["topbar_text"])
 
     return img
 

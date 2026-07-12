@@ -88,6 +88,18 @@ at the top of `display.py`. If it's a different driver chip entirely (e.g.
 GC9A01, ST7735), only `init_display()` and `push_frame()` need to change —
 everything else just paints onto a PIL `Image`.
 
+### Screen layout
+
+- **Top bar**: current time (left), WiFi signal bars (right) -- read
+  straight from `/proc/net/wireless` for `wlan0` (change `WIFI_INTERFACE`
+  in `display.py` if yours is named differently, e.g. an external USB
+  adapter). A slash through the bars means no connection.
+- **Middle**: the next upcoming meal -- name, category, timing, and any
+  going-out/prep/notes details. Text size adapts automatically to fit
+  whatever's actually there.
+- **Bottom bar**: how many meals are left today (left), current weather
+  (right).
+
 ## 5. Try it manually first (optional)
 
 If you want to poke at things before running `install.sh`, or you're
@@ -99,8 +111,9 @@ python3 display.py    # in another terminal -> screen should light up
 ```
 
 Add a meal or two from the web UI and confirm the screen updates within
-~8 seconds, and the weather strip appears at the top within a few seconds
-(needs internet access).
+~8 seconds, and the top/bottom bars (time+wifi, meals-left+weather) appear
+immediately, with the weather populating within a few seconds (needs
+internet access).
 
 ## 6. Boot behavior
 
