@@ -14,6 +14,7 @@ with zero backend changes.
 | `app.py` | Flask HTTP server + REST API (the "backend") |
 | `database.py` | SQLite schema + recurring-meal + per-day-exception scheduling logic |
 | `display.py` | Standalone daemon that draws to the SPI screen, incl. weather |
+| `push.py` | Web Push: VAPID keys, subscriptions, sending "start prep by" reminders |
 | `templates/index.html`, `static/*` | The web UI |
 | `servelocal_planner.service`, `servelocal_display.service` | systemd units to run both on boot |
 | `install.sh` | Installs (or updates) everything above in one step -- see below |
@@ -88,18 +89,6 @@ at the top of `display.py`. If it's a different driver chip entirely (e.g.
 GC9A01, ST7735), only `init_display()` and `push_frame()` need to change —
 everything else just paints onto a PIL `Image`.
 
-### Screen layout
-
-- **Top bar**: current time (left), WiFi signal bars (right) -- read
-  straight from `/proc/net/wireless` for `wlan0` (change `WIFI_INTERFACE`
-  in `display.py` if yours is named differently, e.g. an external USB
-  adapter). A slash through the bars means no connection.
-- **Middle**: the next upcoming meal -- name, category, timing, and any
-  going-out/prep/notes details. Text size adapts automatically to fit
-  whatever's actually there.
-- **Bottom bar**: how many meals are left today (left), current weather
-  (right).
-
 ## 5. Try it manually first (optional)
 
 If you want to poke at things before running `install.sh`, or you're
@@ -111,9 +100,8 @@ python3 display.py    # in another terminal -> screen should light up
 ```
 
 Add a meal or two from the web UI and confirm the screen updates within
-~8 seconds, and the top/bottom bars (time+wifi, meals-left+weather) appear
-immediately, with the weather populating within a few seconds (needs
-internet access).
+~8 seconds, and the weather strip appears at the top within a few seconds
+(needs internet access).
 
 ## 6. Boot behavior
 
@@ -216,6 +204,9 @@ HTTP status codes are meaningful: `200` ok, `201` created, `404` not found,
 | GET | `/calendar/{date}` | All occurrences on that date (incl. skipped ones) |
 | PUT | `/meals/{id}/occurrences/{date}` | Override or skip (`cancelled:true`) a single occurrence |
 | DELETE | `/meals/{id}/occurrences/{date}` | Revert a single occurrence to the series default |
+| GET | `/push/vapid-public-key` | `{ "key": "..." }` -- needed by the browser to subscribe |
+| POST | `/push/subscribe` | Body: the browser's `PushSubscription.toJSON()` |
+| POST | `/push/unsubscribe` | Body: `{ "endpoint": "..." }` |
 
 A meal series object looks like:
 ```json
@@ -248,6 +239,33 @@ calendar day views, `has_override` / `cancelled` flags.
 Since this is meant for your home Wi-Fi rather than the public internet,
 there's no auth layer. If you ever expose it beyond your LAN, put it behind
 a reverse proxy with at least an API key or basic auth in front of it.
+
+## Meal reminders (push notifications)
+
+Tap the bell icon in the web UI to get a notification on your phone at
+each meal's "start prep by" (or "leave by", for going-out meals) time.
+This works per-device -- everyone in the household enables it separately
+on their own phone.
+
+**Android** (Chrome, Edge, Firefox): works from a normal bookmarked tab,
+nothing extra needed.
+
+**iPhone/iPad (Safari)**: Apple only allows web push for a site added to
+the Home Screen (Share button -> "Add to Home Screen"), opened from that
+icon, on iOS 16.4+. A regular Safari tab or bookmark cannot receive push
+notifications there -- this is a platform restriction, not something this
+app can work around. The bell button detects this and shows instructions
+instead of silently failing.
+
+Under the hood: this uses standard Web Push (VAPID), not any third-party
+notification service. A keypair is generated automatically on first run
+and stored at `vapid_private_key.pem` in the install directory -- back
+this up if you care about not having to re-subscribe every device after a
+reinstall (deleting it just means everyone re-taps the bell once). A
+background thread inside the web server checks once a minute for meals
+whose prep time just arrived and sends to every subscribed device; each
+occurrence is only ever notified once, tracked in the `sent_notifications`
+table.
 
 ## Ideas for later
 

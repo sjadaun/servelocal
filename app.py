@@ -14,10 +14,13 @@ Run with: python3 app.py   (defaults to 0.0.0.0:8080)
 import calendar as pycalendar
 import datetime
 import pathlib
-from flask import Flask, request, jsonify, render_template
+import threading
+import time
+from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
 
 import database as db
+import push
 
 app = Flask(__name__)
 CORS(app)
@@ -34,6 +37,23 @@ def read_version():
 
 
 APP_VERSION = read_version()
+
+
+def _notification_scheduler_loop():
+    """Background thread: checks every 60s for any meal whose 'start prep
+    by' / 'leave by' moment just arrived, and sends a push notification to
+    every subscribed device. Runs inside the same process as the web
+    server (simplest option for a single-Pi deployment) rather than as a
+    separate service."""
+    while True:
+        try:
+            push.check_and_send_prep_reminders()
+        except Exception as exc:
+            print(f"[scheduler] error checking reminders: {exc}")
+        time.sleep(60)
+
+
+threading.Thread(target=_notification_scheduler_loop, daemon=True).start()
 
 CATEGORIES = [
     {"id": "breakfast", "label": "Breakfast"},
@@ -151,6 +171,22 @@ def parse_date_param(s):
 @app.route("/")
 def index():
     return render_template("index.html", version=APP_VERSION)
+
+
+@app.route("/sw.js")
+def service_worker():
+    # served at root (not /static/sw.js) so its scope covers the whole
+    # site -- a service worker's default controllable scope is its own
+    # directory, and push notifications need to work regardless of which
+    # page is open when the service worker was registered
+    resp = send_from_directory("static", "sw.js", mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
 
 
 # ------------------------------------------------------------ API v1 -----
@@ -318,6 +354,29 @@ def api_set_theme():
         return err(f"'mode' must be one of {sorted(db.VALID_THEME_MODES)}", 422)
     db.set_theme_mode(mode)
     return ok({"mode": mode, "resolved": db.resolve_theme(mode)})
+
+
+@app.route("/api/v1/push/vapid-public-key", methods=["GET"])
+def api_vapid_public_key():
+    return ok({"key": push.get_public_key_b64()})
+
+
+@app.route("/api/v1/push/subscribe", methods=["POST"])
+def api_push_subscribe():
+    data = request.get_json(force=True, silent=True) or {}
+    if not data.get("endpoint") or not data.get("keys"):
+        return err("subscription must include 'endpoint' and 'keys'", 422)
+    push.save_subscription(data, label=data.get("label", ""))
+    return ok({"subscribed": True}, 201)
+
+
+@app.route("/api/v1/push/unsubscribe", methods=["POST"])
+def api_push_unsubscribe():
+    data = request.get_json(force=True, silent=True) or {}
+    if not data.get("endpoint"):
+        return err("'endpoint' is required", 422)
+    push.remove_subscription(data["endpoint"])
+    return ok({"unsubscribed": True})
 
 
 @app.errorhandler(404)

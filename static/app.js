@@ -667,6 +667,121 @@ function editMeal(id, meals) {
   showTab("add");
 }
 
+// -------------------------------------------------------- notifications ----
+// Meal reminders ("start prep by") via Web Push. Two hard platform facts
+// this UI has to work around:
+//  - iOS Safari only supports push for a site added to the Home Screen
+//    (Settings -> Share -> Add to Home Screen), not a normal tab/bookmark.
+//  - Permission must be requested from a direct user gesture (the button
+//    click itself), so this can't happen automatically on page load.
+
+const notifToggle = document.getElementById("notif-toggle");
+const notifBanner = document.getElementById("notif-banner");
+
+function isIos() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+function isStandalone() {
+  return window.navigator.standalone === true ||
+    window.matchMedia("(display-mode: standalone)").matches;
+}
+function showBanner(html) {
+  notifBanner.innerHTML = html;
+  notifBanner.classList.remove("hidden");
+}
+function hideBanner() {
+  notifBanner.classList.add("hidden");
+}
+
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function getExistingSubscription() {
+  if (!("serviceWorker" in navigator)) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) return null;
+  return reg.pushManager.getSubscription();
+}
+
+function setBellState(on) {
+  notifToggle.dataset.on = on ? "true" : "false";
+}
+
+async function refreshNotifButtonState() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    notifToggle.style.display = "none";
+    return;
+  }
+  try {
+    const sub = await getExistingSubscription();
+    setBellState(!!sub);
+  } catch (e) {
+    setBellState(false);
+  }
+}
+
+async function subscribeToPush() {
+  const reg = await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.ready;
+
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    showBanner("Notifications were blocked. You can re-enable them in your browser/phone settings.");
+    return false;
+  }
+
+  const { key } = await apiCall("/push/vapid-public-key");
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(key),
+  });
+  await apiCall("/push/subscribe", { method: "POST", body: JSON.stringify(sub.toJSON()) });
+  return true;
+}
+
+async function unsubscribeFromPush() {
+  const sub = await getExistingSubscription();
+  if (sub) {
+    await apiCall("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) });
+    await sub.unsubscribe();
+  }
+}
+
+notifToggle.addEventListener("click", async () => {
+  hideBanner();
+
+  if (isIos() && !isStandalone()) {
+    showBanner('On iPhone/iPad, add ServeLocal to your Home Screen first (Share button → "Add to Home Screen"), then open it from there to turn on reminders.');
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    showBanner("This browser doesn't support notifications.");
+    return;
+  }
+
+  const currentlyOn = notifToggle.dataset.on === "true";
+  notifToggle.disabled = true;
+  try {
+    if (currentlyOn) {
+      await unsubscribeFromPush();
+      setBellState(false);
+    } else {
+      const ok = await subscribeToPush();
+      if (ok) setBellState(true);
+    }
+  } catch (err) {
+    showBanner("Couldn't update notification settings: " + err.message);
+  } finally {
+    notifToggle.disabled = false;
+  }
+});
+
+refreshNotifButtonState();
+
 // ------------------------------------------------------------- init -----
 
 loadNext();

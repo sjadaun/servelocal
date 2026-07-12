@@ -7,3 +7,4 @@ gpiozero
 gpio
 urllib3
 lgpio
+pywebpush

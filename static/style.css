@@ -99,6 +99,22 @@ html[data-theme-mode="dark"] #icon-moon { display: block; }
 html[data-theme-mode="auto"] #icon-sun { display: none; }
 html[data-theme-mode="auto"] #icon-auto { display: block; }
 
+/* notification bell: #notif-toggle gets data-on="true" once subscribed */
+#icon-bell-on { display: none; }
+#notif-toggle[data-on="true"] #icon-bell-off { display: none; }
+#notif-toggle[data-on="true"] #icon-bell-on { display: block; }
+#notif-toggle[data-on="true"] { color: var(--accent); }
+
+.notif-banner {
+  background: var(--chip-bg);
+  color: var(--text);
+  font-size: 13px;
+  padding: 10px 16px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.notif-banner a { color: var(--accent); font-weight: 700; }
+
 .theme-control { position: relative; }
 .theme-menu {
   position: absolute;
@@ -381,8 +397,14 @@ input[type="text"], input[type="time"], input[type="date"], input[type="number"]
   color: var(--text);
 }
 textarea { min-height: 54px; resize: vertical; }
-.row { display: flex; gap: 12px; }
-.row > label { flex: 1; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; }
+.row > label {
+  flex: 1 1 140px;
+  min-width: 0; /* without this, native date/time inputs' own intrinsic
+                   width can exceed their half of the row and overlap the
+                   sibling field -- most visible on iOS Safari */
+}
+.row > label input { min-width: 0; }
 
 .chip-group {
   display: flex;

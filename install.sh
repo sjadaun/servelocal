@@ -77,6 +77,7 @@ rsync -a --delete \
     --exclude='.git' \
     --exclude='.gitignore' \
     --exclude='db' \
+    --exclude='vapid_private_key.pem' \
     --exclude='__pycache__' \
     --exclude='venv' \
     --exclude='install.sh' \

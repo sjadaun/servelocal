@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ServeLocal</title>
 <link rel="stylesheet" href="/static/style.css?v={{ version }}">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<!-- iOS Safari needs these specifically (doesn't fully read manifest.json)
+     for "Add to Home Screen" to behave like an installed app, which is a
+     hard requirement for it to support push notifications at all. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ServeLocal">
+<meta name="theme-color" content="#d9622b">
 </head>
 <body>
 <div class="app">
@@ -26,7 +36,13 @@
         <button type="button" class="theme-option" data-mode="auto">🕐 Auto</button>
       </div>
     </div>
+    <button id="notif-toggle" class="icon-btn" aria-label="Toggle meal reminders" title="Toggle meal reminders">
+      <svg id="icon-bell-off" viewBox="0 0 24 24" width="20" height="20"><path d="M12 22a2.5 2.5 0 002.45-2h-4.9A2.5 2.5 0 0012 22zm7-6v-5a6.98 6.98 0 00-5-6.71V4a2 2 0 10-4 0v.29A6.98 6.98 0 005 11v5l-1.6 1.6a1 1 0 00.7 1.7h15.8a1 1 0 00.7-1.7L19 16zm-2 1H7v-6a5 5 0 0110 0v6z" fill="currentColor" opacity="0.35"/></svg>
+      <svg id="icon-bell-on" viewBox="0 0 24 24" width="20" height="20"><path d="M12 22a2.5 2.5 0 002.45-2h-4.9A2.5 2.5 0 0012 22zm7-6v-5a6.98 6.98 0 00-5-6.71V4a2 2 0 10-4 0v.29A6.98 6.98 0 005 11v5l-1.6 1.6a1 1 0 00.7 1.7h15.8a1 1 0 00.7-1.7L19 16z" fill="currentColor"/></svg>
+    </button>
   </header>
+
+  <div id="notif-banner" class="notif-banner hidden"></div>
 
   <main class="content">
 

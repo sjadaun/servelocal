@@ -82,6 +82,22 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint   TEXT NOT NULL UNIQUE,
+    keys_json  TEXT NOT NULL,   -- JSON: {"p256dh": "...", "auth": "..."}
+    label      TEXT DEFAULT '', -- optional, e.g. "Wife's iPhone" (not currently set by UI)
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sent_notifications (
+    meal_slot_id INTEGER NOT NULL,
+    occ_date     TEXT NOT NULL,   -- 'YYYY-MM-DD', the occurrence this notification was for
+    kind         TEXT NOT NULL,   -- 'prep' (only kind today, room to add 'ready' etc later)
+    sent_at      TEXT NOT NULL,
+    PRIMARY KEY (meal_slot_id, occ_date, kind)
+);
 """
 
 
@@ -459,3 +475,76 @@ def resolve_theme(mode: str, now=None) -> str:
         return mode
     now = now or datetime.datetime.now()
     return "light" if LIGHT_MODE_START_HOUR <= now.hour < LIGHT_MODE_END_HOUR else "dark"
+
+
+# ------------------------------------------------------- push subscriptions -----
+
+def upsert_push_subscription(endpoint: str, keys_json: str, label: str = ""):
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO push_subscriptions (endpoint, keys_json, label, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(endpoint) DO UPDATE SET keys_json=excluded.keys_json""",
+            (endpoint, keys_json, label, datetime.datetime.now().isoformat(timespec="seconds")),
+        )
+
+
+def delete_push_subscription(endpoint: str):
+    with get_db() as conn:
+        conn.execute("DELETE FROM push_subscriptions WHERE endpoint=?", (endpoint,))
+
+
+def list_push_subscriptions():
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM push_subscriptions").fetchall()]
+
+
+def has_push_subscription(endpoint: str) -> bool:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM push_subscriptions WHERE endpoint=?", (endpoint,)
+        ).fetchone()
+        return row is not None
+
+
+# -------------------------------------------------- notification scheduling -----
+
+def was_notification_sent(meal_slot_id: int, occ_date: str, kind: str) -> bool:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM sent_notifications WHERE meal_slot_id=? AND occ_date=? AND kind=?",
+            (meal_slot_id, occ_date, kind),
+        ).fetchone()
+        return row is not None
+
+
+def mark_notification_sent(meal_slot_id: int, occ_date: str, kind: str):
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO sent_notifications (meal_slot_id, occ_date, kind, sent_at)
+               VALUES (?, ?, ?, ?)""",
+            (meal_slot_id, occ_date, kind, datetime.datetime.now().isoformat(timespec="seconds")),
+        )
+
+
+def get_due_prep_notifications(now=None, window_minutes=2):
+    """Today's occurrences whose 'start prep by' / 'leave by' moment falls
+    within the last `window_minutes` (and hasn't already been notified).
+    Only meaningful for occurrences with prep_minutes set -- that's the
+    whole basis of a 'start prep by' reminder."""
+    now = now or datetime.datetime.now()
+    due = []
+    for occ in get_today_meals(now):
+        meal = occ["meal"]
+        if not meal["prep_minutes"]:
+            continue
+        prep_time = occ["when"] - datetime.timedelta(minutes=meal["prep_minutes"])
+        if prep_time > now:
+            continue  # not due yet
+        if (now - prep_time).total_seconds() > window_minutes * 60:
+            continue  # missed the window (server was down, etc.) -- don't send a late/stale one
+        occ_date = occ["when"].date().isoformat()
+        if was_notification_sent(occ["slot_id"], occ_date, "prep"):
+            continue
+        due.append(occ)
+    return due
