@@ -89,6 +89,14 @@ at the top of `display.py`. If it's a different driver chip entirely (e.g.
 GC9A01, ST7735), only `init_display()` and `push_frame()` need to change —
 everything else just paints onto a PIL `Image`.
 
+The screen has a top bar (time + WiFi signal), the next meal (with small
+icons for ready-by/prep-by, all hand-drawn with PIL primitives -- no
+external icon assets needed), a meals-left-today row, and a bottom row for
+weather/humidity/date. Text size steps down automatically (ROOMY → COMPACT
+→ MICRO) if a specific meal's content -- a long name, going-out details,
+notes -- needs more room than the roomier size allows, so nothing overlaps
+or runs off-screen regardless of what you type into a meal's fields.
+
 ## 5. Try it manually first (optional)
 
 If you want to poke at things before running `install.sh`, or you're

@@ -102,6 +102,17 @@ PRESET_ROOMY = {
     "meal_wrap_font": FONT_MEAL_WRAP_ROOMY, "meal_wrap_line_h": 33,
     "next_up_gap": 28, "meal_gap": 12, "ready_gap": 22, "detail_gap": 20,
 }
+FONT_LABEL_MICRO = load_font("DejaVuSans-Bold.ttf", 13)
+FONT_MEAL_MICRO = load_font("DejaVuSans-Bold.ttf", 28)         # 1 line
+FONT_MEAL_WRAP_MICRO = load_font("DejaVuSans-Bold.ttf", 19)    # 2 lines
+FONT_TINY_MICRO = load_font("DejaVuSans.ttf", 11)
+
+PRESET_MICRO = {
+    "label_font": FONT_LABEL_MICRO, "tiny_font": FONT_TINY_MICRO,
+    "meal_font": FONT_MEAL_MICRO, "meal_line_h": 32,
+    "meal_wrap_font": FONT_MEAL_WRAP_MICRO, "meal_wrap_line_h": 22,
+    "next_up_gap": 16, "meal_gap": 4, "ready_gap": 13, "detail_gap": 11,
+}
 FONT_BRAND = load_font("DejaVuSans.ttf", 32)
 
 # The theme mode (light / dark / auto) is a single setting shared with the
@@ -344,6 +355,54 @@ def backlight_off():
         _bl_pin.off()
 
 
+def draw_clock_icon(d, cx, cy, r, color):
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=color, width=1)
+    d.line((cx, cy, cx, cy - r * 0.6), fill=color, width=1)
+    d.line((cx, cy, cx + r * 0.5, cy + r * 0.1), fill=color, width=1)
+
+
+def draw_pot_icon(d, cx, cy, w, h, color):
+    x0, y0, x1, y1 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
+    d.rounded_rectangle((x0, y0, x1, y1), radius=2, outline=color, width=1)
+    d.line((x0 - 3, y0 + 2, x0, y0 + 2), fill=color, width=1)
+    d.line((x1, y0 + 2, x1 + 3, y0 + 2), fill=color, width=1)
+
+
+def draw_cloud_sun_icon(d, cx, cy, r, sun_color, cloud_color):
+    d.ellipse((cx - r * 0.3, cy - r * 1.1, cx + r * 1.3, cy + r * 0.3), fill=sun_color)
+    d.ellipse((cx - r * 1.1, cy - r * 0.1, cx + r * 0.3, cy + r * 1.0), fill=cloud_color)
+    d.ellipse((cx - r * 0.4, cy - r * 0.5, cx + r * 1.1, cy + r * 1.0), fill=cloud_color)
+
+
+def draw_drop_icon(d, cx, cy, r, color):
+    d.polygon([(cx, cy - r), (cx - r * 0.8, cy + r * 0.3), (cx + r * 0.8, cy + r * 0.3)], fill=color)
+    d.ellipse((cx - r * 0.8, cy - r * 0.1, cx + r * 0.8, cy + r * 1.5), fill=color)
+
+
+def draw_calendar_icon(d, cx, cy, w, h, color):
+    x0, y0, x1, y1 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
+    d.rounded_rectangle((x0, y0, x1, y1), radius=1, outline=color, width=1)
+    d.line((x0, y0 + h * 0.32, x1, y0 + h * 0.32), fill=color, width=1)
+
+
+def draw_chevron(d, cx, cy, size, color):
+    d.line((cx - size * 0.3, cy - size * 0.5, cx + size * 0.3, cy), fill=color, width=2)
+    d.line((cx + size * 0.3, cy, cx - size * 0.3, cy + size * 0.5), fill=color, width=2)
+
+
+def draw_fork_knife_badge(d, cx, cy, r, badge_color, icon_color):
+    """Small badge version of the fork/knife mark for inline use (the big
+    ornate draw_icon() further down is sized for the splash screen)."""
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=badge_color)
+    fx = cx - r * 0.35
+    d.line((fx, cy - r * 0.5, fx, cy + r * 0.5), fill=icon_color, width=1)
+    for dx in (-2, 0, 2):
+        d.line((fx + dx, cy - r * 0.5, fx + dx, cy - r * 0.1), fill=icon_color, width=1)
+    kx = cx + r * 0.35
+    d.line((kx, cy - r * 0.5, kx, cy + r * 0.5), fill=icon_color, width=1)
+    d.polygon([(kx, cy - r * 0.5), (kx + 3, cy - r * 0.1), (kx, cy)], fill=icon_color)
+
+
 def format_countdown(delta: datetime.timedelta) -> str:
     total_min = int(delta.total_seconds() // 60)
     if total_min < 0:
@@ -357,6 +416,19 @@ def format_countdown(delta: datetime.timedelta) -> str:
 def format_time_12h(t: datetime.datetime) -> str:
     """'11:24 AM' / '9:05 PM' -- no leading zero on the hour."""
     return t.strftime("%I:%M %p").lstrip("0")
+
+
+def fit_text(d, text, font, max_width):
+    """Dynamic width-fit with an ellipsis, using the font's actual
+    rendered width rather than a guessed character count. A fixed char
+    count is only ever correct for ONE font size -- this codebase has hit
+    that exact bug more than once (weather row, going-out place/notes)
+    since font size varies by preset (ROOMY/COMPACT/MICRO)."""
+    if d.textlength(text, font=font) <= max_width:
+        return text
+    while text and d.textlength(text + "…", font=font) > max_width:
+        text = text[:-1]
+    return (text + "…") if text else ""
 
 
 def _wrap_lines(d, text, font, max_width, max_lines=2):
@@ -420,9 +492,10 @@ def _meal_block_height(d, meal, going_out, preset):
 
 
 TOP_BAR_H = 30
-BOTTOM_BAR_H = 30
-CONTENT_TOP = 52
-CONTENT_BOTTOM = 240 - BOTTOM_BAR_H - 6  # small breathing room above the bottom bar
+MEALS_ROW_H = 30
+WEATHER_ROW_H = 52
+CONTENT_TOP = 38
+CONTENT_BOTTOM = 240 - WEATHER_ROW_H - MEALS_ROW_H - 8
 
 
 def render_frame():
@@ -434,40 +507,56 @@ def render_frame():
     now = datetime.datetime.now()
 
     # -- top bar: time (left) + wifi signal (right) --
+    # (No battery/flashlight icons -- this hardware has neither a battery
+    # nor a flashlight to report on; showing them would just be fake data.)
     d.rectangle((0, 0, 240, TOP_BAR_H), fill=c["topbar_bg"])
     time_str = format_time_12h(now)
     d.text((10, 6), time_str, font=FONT_TIME, fill=c["text"])
 
     wifi = get_wifi_status()
-    print(wifi)
     draw_wifi_bars(d, 228, TOP_BAR_H // 2, wifi, c["topbar_text"], c["divider"])
 
-    #d.line((12, TOP_BAR_H + 12, 228, TOP_BAR_H + 12), fill=c["divider"], width=1)
+    d.line((0, TOP_BAR_H, 240, TOP_BAR_H), fill=c["divider"], width=1)
 
     # -- next meal content --
     occ = db.get_next_meal(now)
 
     if occ is None:
-        d.text((12, 90), "No Meals", font=FONT_MEAL_WRAP_ROOMY, fill=c["muted"])
+        d.text((12, 90), "No meals scheduled", font=FONT_MEAL_WRAP_ROOMY, fill=c["muted"])
     else:
         meal, when = occ["meal"], occ["when"]
         going_out = bool(meal["going_out"])
         color = c["going_out"] if going_out else c["categories"].get(meal["category"], c["categories"]["other"])
 
+        tag = "EATING OUT" if going_out else meal["category"].upper()
+
+        def _tag_fits(preset):
+            w = d.textlength(f"NEXT UP:  {tag}", font=preset["label_font"])
+            return w <= 228 - 12
+
         # Try ROOMY first so short/typical content fills the screen with
-        # bigger text instead of leaving space unused; only fall back to
-        # COMPACT if this specific meal's content is tall enough that ROOMY
-        # would run into the bottom bar.
+        # bigger text instead of leaving space unused. Fall back to COMPACT,
+        # and as a last resort MICRO, if this specific meal's content is
+        # tall enough that a roomier size would run into the row below, OR
+        # if "NEXT UP: EATING OUT" (the longest possible tag) wouldn't fit
+        # on one line at that size.
         content_h, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, PRESET_ROOMY)
-        if CONTENT_TOP + content_h <= CONTENT_BOTTOM:
+        if CONTENT_TOP + content_h <= CONTENT_BOTTOM and _tag_fits(PRESET_ROOMY):
             preset = PRESET_ROOMY
         else:
-            preset = PRESET_COMPACT
-            _, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, preset)
+            content_h, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, PRESET_COMPACT)
+            if CONTENT_TOP + content_h <= CONTENT_BOTTOM and _tag_fits(PRESET_COMPACT):
+                preset = PRESET_COMPACT
+            else:
+                preset = PRESET_MICRO
+                _, lines, meal_font, line_h = _meal_block_height(d, meal, going_out, preset)
+
+        icon_r = 8 if preset is PRESET_ROOMY else (7 if preset is PRESET_COMPACT else 5)
+        text_x = 32  # leaves room for the icon column at x=12..28
 
         y = CONTENT_TOP
-        tag = "EATING OUT" if going_out else meal["category"].upper()
-        d.text((12, y), f"NEXT UP:  {tag}", font=preset["label_font"], fill=color)
+        next_up_text = fit_text(d, f"NEXT UP:  {tag}", preset["label_font"], 228 - 12)
+        d.text((12, y), next_up_text, font=preset["label_font"], fill=color)
         y += preset["next_up_gap"]
 
         for line in lines:
@@ -477,51 +566,81 @@ def render_frame():
 
         countdown = format_countdown(when - now)
         label = "there by" if going_out else "ready by"
-        d.text((12, y), f"{label} {meal['scheduled_time']} ({countdown})",
-               font=preset["tiny_font"], fill=c["detail"])
+        ready_text = fit_text(d, f"{label} {meal['scheduled_time']} ({countdown})", preset["tiny_font"], 228 - text_x)
+        draw_clock_icon(d, 18, y + icon_r, icon_r, c["detail"])
+        d.text((text_x, y), ready_text, font=preset["tiny_font"], fill=c["detail"])
         y += preset["ready_gap"]
 
         if going_out and meal["going_out_place"]:
-            place = meal["going_out_place"]
-            if len(place) > 30:
-                place = place[:29] + "…"
-            d.text((12, y), f"@ {place}", font=preset["tiny_font"], fill=c["amber"])
+            prefix_w = d.textlength("@ ", font=preset["tiny_font"])
+            place = fit_text(d, meal["going_out_place"], preset["tiny_font"], 228 - text_x - prefix_w)
+            d.text((text_x, y), f"@ {place}", font=preset["tiny_font"], fill=c["amber"])
             y += preset["detail_gap"]
         if meal["prep_minutes"]:
             start_by = format_time_12h(when - datetime.timedelta(minutes=meal["prep_minutes"]))
             prep_label = "leave by" if going_out else "start prep by"
-            d.text((12, y), f"{prep_label} {start_by}", font=preset["tiny_font"], fill=c["amber"])
+            prep_text = fit_text(d, f"{prep_label} {start_by}", preset["tiny_font"], 228 - text_x)
+            draw_pot_icon(d, 18, y + icon_r - 1, 11, 8, c["amber"])
+            d.text((text_x, y), prep_text, font=preset["tiny_font"], fill=c["amber"])
             y += preset["detail_gap"]
         if meal["notes"]:
-            note = meal["notes"]
-            if len(note) > 34:
-                note = note[:33] + "…"
-            d.text((12, y), note, font=preset["tiny_font"], fill=c["muted"])
+            note = fit_text(d, meal["notes"], preset["tiny_font"], 228 - text_x)
+            d.text((text_x, y), note, font=preset["tiny_font"], fill=c["muted"])
             y += preset["detail_gap"]
 
-    # -- bottom bar: meals left (left) + weather (right) --
-    bar_y = 240 - BOTTOM_BAR_H
-    d.rectangle((0, bar_y, 240, 240), fill=c["topbar_bg"])
-    text_y = bar_y + (BOTTOM_BAR_H - 13) // 2
+    # -- meals-left row: fork/knife badge + text + chevron --
+    meals_row_y = CONTENT_BOTTOM + 8
+    d.line((0, meals_row_y, 240, meals_row_y), fill=c["divider"], width=1)
+    row_cy = meals_row_y + MEALS_ROW_H // 2
 
     today = db.get_today_meals(now)
     remaining = [t for t in today if not t["done"]]
-    summary = f"{len(remaining)} Meal(s) left" if remaining else "All done"
-    d.text((10, text_y), summary, font=FONT_WEATHER, fill=c["topbar_text"])
-    summary_end_x = 10 + d.textlength(summary, font=FONT_WEATHER)
+    summary = f"{len(remaining)} meal(s) left today" if remaining else "All done for today"
+
+    draw_fork_knife_badge(d, 24, row_cy, 11, c["going_out"], c["bg"])
+    d.text((42, row_cy - 7), summary, font=FONT_WEATHER, fill=c["text"])
+    draw_chevron(d, 226, row_cy, 12, c["dim"])
+
+    # -- bottom row: weather | humidity | date, 3 segments --
+    weather_row_y = meals_row_y + MEALS_ROW_H
+    d.line((0, weather_row_y, 240, weather_row_y), fill=c["divider"], width=1)
+    d.rectangle((0, weather_row_y, 240, 240), fill=c["topbar_bg"])
 
     weather = fetch_weather()
-    weather_text = (f"{weather['temp']}°C | {weather['humidity']}%"
-                     if weather else "Weather N/A")
-    max_weather_w = 230 - (summary_end_x + 10)  # never let it crowd the summary
-    truncated = False
-    while d.textlength(weather_text, font=FONT_WEATHER) > max_weather_w and len(weather_text) > 1:
-        weather_text = weather_text[:-1]
-        truncated = True
-    if truncated:
-        weather_text = weather_text.rstrip() + "…"
-    ww = d.textlength(weather_text, font=FONT_WEATHER)
-    d.text((230 - ww, text_y), weather_text, font=FONT_WEATHER, fill=c["topbar_text"])
+    # Unequal segments: weather (icon+temp+condition) needs the most room,
+    # humidity (just "53%") needs the least. Equal thirds left long-but-
+    # common condition labels like "P.Cloudy" truncated to "P.Clo…" even in
+    # completely normal weather -- this matches the actual mockup's
+    # proportions better too, where the weather segment reads visibly wider.
+    seg1_w, seg2_w, seg3_w = 100, 62, 78
+    seg1_end, seg2_end = seg1_w, seg1_w + seg2_w
+    icon_cy = weather_row_y + 18
+    val_y = weather_row_y + 8
+    label_y = weather_row_y + 24
+
+    # segment 1: condition + temperature (x: 0..100, text starts at 32)
+    draw_cloud_sun_icon(d, 18, icon_cy, 6, (232, 201, 74), c["topbar_text"])
+    temp_str = fit_text(d, f"{weather['temp']}°C" if weather else "--", FONT_WEATHER, seg1_end - 4 - 32)
+    cond_str = fit_text(d, weather["label"] if weather else "N/A", FONT_TINY_COMPACT, seg1_end - 4 - 32)
+    d.text((32, val_y), temp_str, font=FONT_WEATHER, fill=c["text"])
+    d.text((32, label_y), cond_str, font=FONT_TINY_COMPACT, fill=c["topbar_text"])
+    d.line((seg1_end, weather_row_y + 6, seg1_end, 240 - 6), fill=c["divider"], width=1)
+
+    # segment 2: humidity (x: 100..162, text starts at seg1_end+20)
+    draw_drop_icon(d, seg1_end + 12, icon_cy, 6, (90, 168, 216))
+    hum_text_x = seg1_end + 22
+    hum_max_w = seg2_end - 4 - hum_text_x
+    hum_str = fit_text(d, f"{weather['humidity']}%" if weather else "--", FONT_WEATHER, hum_max_w)
+    d.text((hum_text_x, val_y), hum_str, font=FONT_WEATHER, fill=c["text"])
+    d.text((hum_text_x, label_y), fit_text(d, "Hum", FONT_TINY_COMPACT, hum_max_w), font=FONT_TINY_COMPACT, fill=c["topbar_text"])
+    d.line((seg2_end, weather_row_y + 6, seg2_end, 240 - 6), fill=c["divider"], width=1)
+
+    # segment 3: date (x: 162..240, text starts at seg2_end+22)
+    draw_calendar_icon(d, seg2_end + 12, icon_cy, 12, 11, c["topbar_text"])
+    date_text_x = seg2_end + 22
+    date_max_w = 240 - 6 - date_text_x
+    d.text((date_text_x, val_y), fit_text(d, now.strftime("%a"), FONT_WEATHER, date_max_w), font=FONT_WEATHER, fill=c["text"])
+    d.text((date_text_x, label_y), fit_text(d, now.strftime("%-d %b"), FONT_TINY_COMPACT, date_max_w), font=FONT_TINY_COMPACT, fill=c["topbar_text"])
 
     return img
 
